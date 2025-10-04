@@ -1,0 +1,162 @@
+# Configuration MQTT - Exemples et bonnes pratiques
+
+## ⚠️ AVERTISSEMENT SÉCURITÉ
+Ce fichier contient des exemples de configuration MQTT.
+NE JAMAIS commiter de vraies informations d'authentification dans git !
+Utilisez `config_local.h` pour vos vraies valeurs (ignoré par git).
+
+## 📋 Options de brokers MQTT
+
+### Option 1: Broker local (Mosquitto) - RECOMMANDÉ
+```cpp
+// Dans votre config_local.h
+#define MQTT_SERVER "192.168.1.100"  // Votre IP locale
+#define MQTT_PORT 1883
+#define MQTT_USER "sensor_user"      // Utilisateur dédié
+#define MQTT_PASSWORD "strong_password_here"
+```
+
+Installation Mosquitto :
+```bash
+# Ubuntu/Debian
+sudo apt install mosquitto mosquitto-clients
+
+# Créer un utilisateur
+sudo mosquitto_passwd -c /etc/mosquitto/passwd sensor_user
+
+# Configurer l'authentification
+echo "allow_anonymous false" | sudo tee -a /etc/mosquitto/mosquitto.conf
+echo "password_file /etc/mosquitto/passwd" | sudo tee -a /etc/mosquitto/mosquitto.conf
+
+# Redémarrer
+sudo systemctl restart mosquitto
+```
+
+### Option 2: Broker cloud sécurisé (HiveMQ, AWS IoT, etc.)
+```cpp
+// Configuration avec TLS (production)
+#define MQTT_SERVER "your-cluster.hivemq.cloud"
+#define MQTT_PORT 8883  // Port TLS
+#define MQTT_USER "your_username"
+#define MQTT_PASSWORD "your_secure_password"
+#define MQTT_USE_TLS true
+```
+
+### Option 3: Tests uniquement (NON pour production)
+```cpp
+// ⚠️ POUR TESTS UNIQUEMENT - Pas sécurisé !
+#define MQTT_SERVER "test.mosquitto.org"  // Broker public
+#define MQTT_PORT 1883
+#define MQTT_USER ""     // Pas d'authentification
+#define MQTT_PASSWORD ""
+```
+
+## 🔐 Configuration sécurisée recommandée
+
+### Mosquitto production (/etc/mosquitto/mosquitto.conf)
+```ini
+# Sécurité
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+
+# TLS/SSL (recommandé)
+listener 8883
+cafile /etc/mosquitto/ca.crt
+certfile /etc/mosquitto/server.crt
+keyfile /etc/mosquitto/server.key
+
+# Limites
+max_connections 100
+max_queued_messages 1000
+message_size_limit 2048
+
+# Logging
+log_dest file /var/log/mosquitto/mosquitto.log
+log_type warning
+log_type error
+
+# Persistance
+persistence true
+persistence_location /var/lib/mosquitto/
+```
+
+### Permissions utilisateur (/etc/mosquitto/acl)
+```ini
+# Permissions minimales pour les capteurs ESP32
+user sensor_user
+topic write datayoti/sensor/+/data
+topic write datayoti/sensor/+/heartbeat
+topic write datayoti/sensor/+/status
+
+# Permissions lecture pour dashboard
+user dashboard_user  
+topic read datayoti/sensor/+/+
+
+# Admin complet
+user admin_user
+pattern readwrite datayoti/#
+```
+
+## 🧪 Commandes de test
+
+### Test de connexion
+```bash
+# Test connexion locale
+mosquitto_pub -h 192.168.1.100 -u sensor_user -P your_password -t "test/topic" -m "hello"
+
+# Test avec TLS
+mosquitto_pub -h your-cluster.hivemq.cloud -p 8883 --capath /etc/ssl/certs/ -u your_user -P your_pass -t "test/topic" -m "hello"
+```
+
+### Écouter les données des capteurs
+```bash
+# Tous les capteurs
+mosquitto_sub -h 192.168.1.100 -u dashboard_user -P your_password -t "datayoti/sensor/+/data" -v
+
+# Capteur spécifique
+mosquitto_sub -h 192.168.1.100 -u dashboard_user -P your_password -t "datayoti/sensor/AA:BB:CC:DD:EE:FF/+" -v
+
+# Heartbeats seulement
+mosquitto_sub -h 192.168.1.100 -u dashboard_user -P your_password -t "datayoti/sensor/+/heartbeat" -v
+```
+
+### Monitoring en temps réel
+```bash
+# Dashboard simple en terminal
+watch -n 1 'mosquitto_sub -h 192.168.1.100 -u dashboard_user -P your_password -t "datayoti/sensor/+/data" -C 1'
+
+# Avec timestamps
+mosquitto_sub -h 192.168.1.100 -u dashboard_user -P your_password -t "datayoti/sensor/+/+" -v | ts '[%Y-%m-%d %H:%M:%S]'
+```
+
+## 📊 Topics utilisés par le firmware
+
+```
+# Structure des topics
+datayoti/sensor/{device_mac_address}/data      → Données capteurs (temp/humidity)
+datayoti/sensor/{device_mac_address}/heartbeat → Status device (RSSI, heap, uptime)
+datayoti/sensor/{device_mac_address}/status    → Online/Offline (Last Will Testament)
+
+# Exemples concrets
+datayoti/sensor/AA:BB:CC:DD:EE:FF/data
+datayoti/sensor/AA:BB:CC:DD:EE:FF/heartbeat  
+datayoti/sensor/AA:BB:CC:DD:EE:FF/status
+```
+
+## 🔒 Checklist sécurité MQTT
+
+- [ ] Authentification activée (pas de connexions anonymes)
+- [ ] Mots de passe forts et uniques
+- [ ] Permissions utilisateur minimales (ACL)
+- [ ] TLS/SSL en production
+- [ ] Firewall configuré (ports 1883/8883)
+- [ ] Logs de sécurité activés
+- [ ] Monitoring des connexions suspectes
+- [ ] Sauvegarde des configurations
+
+## 📚 Ressources utiles
+
+- [Documentation Mosquitto](https://mosquitto.org/documentation/)
+- [MQTT Security Best Practices](https://www.hivemq.com/blog/mqtt-security-fundamentals/)
+- [Configuration TLS/SSL](https://mosquitto.org/man/mosquitto-tls-7.html)
+- [Test de performances MQTT](https://www.hivemq.com/blog/mqtt-performance-testing/)
